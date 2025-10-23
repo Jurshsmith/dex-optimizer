@@ -26,39 +26,9 @@ Benchmarks compare array-of-structs versus struct-of-arrays layouts, and the inc
 - `cargo test` covers unit + integration tests, including the asynchronous pipeline scenarios; a clean pass reports `running … tests` followed by `test result: ok`.
 - `cargo bench --bench pipeline` exercises the end-to-end async loop—look for the `time: [...]` summary to confirm hop-cap latency and throughput regressions.
 
-### Configuration
-
-- Runtime knobs live in `PipelineConfig` (`src/pipeline/config.rs`). Update those fields before calling `pipeline::run` or tweak the values in the Criterion benches to explore different workloads.
-- The settings map 1:1 to what the async tasks consume: `hop_cap` bounds cycle depth, `max_updates` + `rate_jitter` drive producer pressure, `channel_capacity` / `max_coalesce` tune lock contention, and the rate bounds gate invalid liquidity swings.
-- `config.toml` currently sets `target-cpu=native`; add more sections there (or wire up a loader) if you want to externalise pipeline configuration.
-- Example bench override:
-
-```rust
-let mut config = PipelineConfig::default();
-config.hop_cap = 4;
-config.search_interval = Duration::from_millis(10);
-config.max_updates = 512;
-```
-
-### Sample run
-
-Running the pipeline bench (Criterion) in release mode gives you a feel for steady-state latency. The snippet below uses the default dataset and prints both hop-cap sweeps and throughput scenarios:
-
-```text
-$ cargo bench --bench pipeline
-Benchmarking pipeline_hop_cap/2
-pipeline_hop_cap/2      time:   [382.12 ms 396.01 ms 409.94 ms]
-Benchmarking pipeline_throughput/pipeline/updates64_hop2
-pipeline_throughput/pipeline/updates64_hop2
-                        time:   [24.686 ms 25.120 ms 25.517 ms]
-                        thrpt:  [2.5081 Kelem/s 2.5477 Kelem/s 2.5926 Kelem/s]
-```
-
-Criterion defaults to long measurement windows; pass `-- --sample-size 10` (or edit `benches/pipeline.rs`) if you need quicker, exploratory runs.
-
 ### Runnable Binaries
 
-- `cargo run` loads `datasets/dataset.json`, runs the pipeline for a minute, and prints a short stats summary.
+- `cargo run` loads `datasets/dataset.json`, runs the pipeline for a minute, and logs a short stats summary.
 - `cargo run --release --bin bench_aos` and `cargo run --release --bin bench_soa` recreate the lightweight layout microbenchmarks from the assignment.
 - `cargo bench --bench pipeline` runs an end-to-end benchmark to see how hop caps influence latency in the async pipeline.
 

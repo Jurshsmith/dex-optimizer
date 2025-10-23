@@ -127,4 +127,39 @@ mod tests {
 
         assert_eq!(iterated, expected);
     }
+
+    #[test]
+    fn with_capacity_preallocates_and_starts_empty() {
+        let cap = 8;
+        let soa = EdgeSoA::with_capacity(cap);
+
+        assert_eq!(soa.len(), 0);
+        assert!(soa.is_empty());
+        assert!(soa.from.capacity() >= cap);
+        assert!(soa.to.capacity() >= cap);
+        assert!(soa.rate.capacity() >= cap);
+    }
+
+    #[test]
+    fn push_adds_edges_in_order() {
+        let mut soa = EdgeSoA::with_capacity(2);
+        soa.push(4, 5, 1.5);
+        soa.push(6, 7, 0.5);
+
+        assert_eq!(soa.len(), 2);
+        let collected: Vec<_> = soa.iter().collect();
+        assert_eq!(collected, vec![(4, 5, 1.5), (6, 7, 0.5)]);
+    }
+
+    #[test]
+    fn from_slice_copies_data() {
+        let mut edges = vec![EdgeAoS::new(10, 11, 1.11), EdgeAoS::new(11, 12, 0.91)];
+        let soa = EdgeSoA::from(edges.as_slice());
+
+        // Mutate the source slice after conversion; the SoA snapshot should not change.
+        edges[0].rate = 42.0;
+
+        let collected: Vec<_> = soa.iter().collect();
+        assert_eq!(collected, vec![(10, 11, 1.11), (11, 12, 0.91)]);
+    }
 }

@@ -190,4 +190,67 @@ mod tests {
             Err(UpdateError::InvalidRate(_))
         ));
     }
+
+    #[test]
+    fn node_and_edge_counts_match_inputs() {
+        let edges = vec![(0, 1, 1.0), (1, 2, 0.5), (2, 0, 2.0)];
+        let graph = CSRGraph::from_edges(4, edges.clone());
+
+        assert_eq!(graph.node_count(), 4);
+        assert_eq!(graph.edge_count(), edges.len());
+
+        for (idx, (src, dst, rate)) in edges.into_iter().enumerate() {
+            assert_eq!(graph.edge_src(idx), src);
+            assert_eq!(graph.edge_dst(idx), dst);
+            assert!((graph.edge_rate(idx) - rate).abs() < 1e-12);
+            assert!((graph.weights_in_neglog[idx] - (-rate.ln())).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn neighbors_cover_all_edges_for_each_node() {
+        let edges = vec![(0, 1, 1.2), (0, 2, 0.8), (1, 2, 1.05), (3, 0, 0.9)];
+        let graph = CSRGraph::from_edges(4, edges);
+
+        let mut seen = Vec::new();
+        for node in 0..graph.node_count() {
+            seen.extend(graph.neighbors(node).map(|(ei, dst, _)| (node, ei, dst)));
+        }
+
+        seen.sort_by_key(|(_, ei, _)| *ei);
+        assert_eq!(seen.len(), graph.edge_count());
+        assert_eq!(seen[0], (0, 0, 1));
+        assert_eq!(seen[1], (0, 1, 2));
+        assert_eq!(seen[2], (1, 2, 2));
+        assert_eq!(seen[3], (3, 3, 0));
+    }
+
+    #[test]
+    fn supports_parallel_edges_and_self_loops() {
+        let edges = vec![
+            (0, 0, 1.01),
+            (0, 0, 0.99),
+            (1, 1, 1.05),
+            (1, 2, 1.10),
+            (1, 2, 0.95),
+        ];
+        let graph = CSRGraph::from_edges(3, edges);
+
+        let mut neighbors_zero: Vec<_> = graph
+            .neighbors(0)
+            .map(|(ei, dst, _)| (ei, dst, graph.edge_rate(ei)))
+            .collect();
+        neighbors_zero.sort_by_key(|(ei, _, _)| *ei);
+        assert_eq!(neighbors_zero, vec![(0, 0, 1.01), (1, 0, 0.99)]);
+
+        let neighbors_one: Vec<_> = graph
+            .neighbors(1)
+            .map(|(ei, dst, _)| (ei, dst, graph.edge_rate(ei)))
+            .collect();
+        assert_eq!(neighbors_one.len(), 3);
+        assert!(neighbors_one
+            .iter()
+            .any(|(ei, dst, rate)| *ei == 2 && *dst == 1 && (*rate - 1.05).abs() < 1e-12));
+        assert!(neighbors_one.iter().filter(|(_, dst, _)| *dst == 2).count() == 2);
+    }
 }
