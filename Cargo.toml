@@ -28,9 +28,22 @@ lto = "thin"
 codegen-units = 1
 panic = "abort"
 
+[[bin]]
+name = "bench_aos"
+path = "benches/bench_aos.rs"
+
+[[bin]]
+name = "bench_soa"
+path = "benches/bench_soa.rs"
 
 [[bench]]
-name = "layout"
+name = "bench_aos"
+path = "benches/bench_aos_harness.rs"
+harness = false
+
+[[bench]]
+name = "bench_soa"
+path = "benches/bench_soa_harness.rs"
 harness = false
 
 [[bench]]
