@@ -84,17 +84,17 @@ On my Mac M4 summary: 50k–100k edges AoS ≈ SoA (~0.17–0.35 ms, equal check
 - At 1M, the loop becomes bandwidth‑bound: SoA packs rates densely (more useful values per cache line), while AoS drags unused from/to fields, wasting memory bandwidth.
 - AoS may win when you need from/to/rate together per edge, where whole‑object locality avoids hopping across multiple arrays.
 
-### Numerical Kernel (log_kernel)
+### Numerical Kernel (`log_kernel`)
 
-Goal: Fuse Clamp → Multiply → Quantize (linear) → Log → Gate into one stable step. Inputs/outputs are log-space so tiny multiplicative updates stay accurate.
+Goal: Fuse Clamp → Multiply → Quantize (linear) → Log → Gate into one steady, branch-light step. Inputs and outputs live in log space, so even near-1.0 nudges keep their precision.
 
 #### Short Explanation
 
 The bits that make the kernel fast and steady:
 
-- We keep state in log space but quantize in linear space (where real ticks live), then hop back using a near-1.0-aware `log1p` path to preserve precision.
-- Bounds are forced ≥ `f64::MIN_POSITIVE`, so nothing ever hits denormals or ln(0) slow paths even when inputs crowd the floor.
-- The quantum is floored to `max(1e-12, ~1 ULP at lo)`, turning every update into a meaningful step and eliminating sub-ULP no-ops.
-- Rounding uses ties-to-even with a tiny ULP-scaled deadband, which kills long-run bias and keeps boundary oscillations from flapping.
-- The epsilon gate is expressed in log units, so it scales multiplicatively and quashes micro-jitter without hiding real price movement.
-- NaN/Inf cases snap to bounds for deterministic outcomes, and the whole routine stays branch-lean—sanitize once, then straight-line math—so it plays nicely with SIMD and remains idempotent when re-applied.
+- We keep state in log space and quantize in the linear domain where real ticks live, then map back with a near‑1.0‑aware `ln_1p` path to preserve sub‑ULP precision.
+- Clamp bounds stay ≥ `f64::MIN_POSITIVE`, avoiding `ln(0)` and denormal slow paths when values hug the floor.
+- We floor the quantum to `max(1e-12, ~1 ULP @ lo)`, so every tick reflects a real move instead of disappearing into sub‑ULP noise.
+- Rounding uses ties‑to‑even with a small ULP slack, which reduces long‑run drift and prevents bouncing between adjacent bins.
+- The epsilon gate operates in log units, so it scales with price—micro‑jitter gets filtered without masking real movement.
+- NaN/Inf snap to bounds; we sanitise up front and keep the rest as straight‑line math that’s idempotent when reapplied.
