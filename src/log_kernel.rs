@@ -1,28 +1,39 @@
 /// Fused clamp→multiply→quantise (linear)→log→gate kernel.
-/// Inputs `old_value_log`/outputs remain in log domain, and [`normalize_bounds`]
-/// keeps the range strictly ≥ `f64::MIN_POSITIVE` to dodge denormal slow paths.
+/// Inputs `old_value_log`/outputs remain in log domain, while [`normalize_bounds`],
+/// [`sanitize_quantum`] and [`sanitize_eps`] keep the linear step numerically safe
+/// (no denormals, NaNs, or long-run bias thanks to ties-to-even rounding).
 pub fn log_mul_eps(
-    old_value_log: f64,
+    old_value: f64,
     a: f64,
     b: f64,
-    eps_log: f64,
+    eps: f64,
     min_r: f64,
     max_r: f64,
-    quantum_lin: f64,
+    quantum: f64,
 ) -> f64 {
     let (lo, hi) = normalize_bounds(min_r, max_r);
-    let quantum = sanitize_quantum(quantum_lin, lo);
+    let eps = sanitize_eps(eps);
+    let quantum = sanitize_quantum(quantum, lo);
     let inv_quantum = quantum.recip();
-    let eps = sanitize_eps(eps_log);
 
     let ac = clamp_operand(a, lo, hi);
     let bc = clamp_operand(b, lo, hi);
-    let product = ac * bc;
+
+    // Multiply while keeping the result within the sanitised range.
+    let product = (ac * bc).clamp(lo, hi);
+
+    // Quantise in linear space using ties-to-even to avoid long-run bias.
     let quantised_linear = quantize_ties_even_linear(product, inv_quantum, quantum).clamp(lo, hi);
+
+    // Convert back to log space with a path that preserves precision near one.
     let new_log = ln_near_one(quantised_linear);
 
-    if eps > 0.0 && (new_log - old_value_log).abs() < eps {
-        old_value_log
+    if !old_value.is_finite() {
+        return new_log;
+    }
+
+    if eps > 0.0 && (new_log - old_value).abs() < eps {
+        old_value
     } else {
         new_log
     }
