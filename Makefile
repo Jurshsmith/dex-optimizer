@@ -1,6 +1,6 @@
 
 CARGO ?= cargo
-BIN ?=
+BIN ?= optimizer
 ARGS ?=
 PROFILE ?=
 BENCH ?=
