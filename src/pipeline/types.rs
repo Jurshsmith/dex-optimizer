@@ -5,7 +5,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Copy)]
 pub(super) enum GraphUpdate {
     Rate { edge_index: usize, new_rate: f64 },
-    // Additional graph mutations (insert/remove edges, fee updates, etc.) can slot in here later.
+    // TODO: Additional graph mutations (insert/remove edges, fee updates, etc.) can slot in here later.
 }
 
 #[derive(Debug, Default)]
