@@ -5,4 +5,4 @@ pub mod edge_layouts;
 pub mod error;
 pub mod pipeline;
 
-mod log_kernel;
+pub mod log_kernel;
