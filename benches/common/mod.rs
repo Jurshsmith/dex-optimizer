@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use optimizer::{dataset, edge_layouts::EdgeAoS};
 
-pub const TARGET_EDGE_COUNT: usize = 50_000;
+pub const TARGET_EDGE_COUNT: usize = 100_000;
 pub const FEE_BPS: f64 = 30.0;
 
 pub fn load_edges(target_len: usize) -> Result<Vec<EdgeAoS>> {

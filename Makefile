@@ -36,6 +36,9 @@ benches: bench-aos bench-soa bench-pipeline
 bench:
 	$(CARGO) bench $(if $(strip $(BENCH)),--bench $(BENCH),)
 
+.PHONY: bench-layout
+bench-layout:  bench-aos bench-soa
+ 
 .PHONY: bench-aos
 bench-aos:
 	$(CARGO) bench --bench bench_aos
