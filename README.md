@@ -1,8 +1,17 @@
 # Dex Route Optimizer
 
-This repository contains a DEX arbitrage finder, data layout tricks, a numerical kernel, and async plumbing.
+Dex Route Optimizer surfaces short-hop arbitrage opportunities across token graphs while keeping the data plane hot and consistent. It combines a CSR-backed cycle finder, an async update pipeline, and a fused numerical kernel that keeps multiplicative adjustments stable in log space.
+
+Benchmarks compare array-of-structs versus struct-of-arrays layouts, and the included dataset harness makes it easy to replay historical pools or synthetic stress tests.
 
 ## Working on the project
+
+### Requirements
+
+- Rust 1.74+ installed via `rustup` (the pipeline and benches target stable and exercise async + tokio features).
+- `cargo fmt` and `clippy` components: `rustup component add rustfmt clippy` keeps tooling in sync with CI.
+- `datasets/dataset.json` or another dataset in the `datasets/` directory—copy your pool snapshots here if you want to replay different markets.
+- Optional: `perf`/`dtrace` for deeper latency profiling when running the pipeline bench in release mode.
 
 ### Quick start
 
@@ -14,7 +23,38 @@ This repository contains a DEX arbitrage finder, data layout tricks, a numerical
 
 - `cargo fmt --check` keeps the diff clean before pushing anything.
 - `cargo clippy -- -D warnings` has surfaced a couple of edge cases already, so I treat warnings as blockers.
-- `cargo test` covers unit + integration tests, including the asynchronous pipeline scenarios.
+- `cargo test` covers unit + integration tests, including the asynchronous pipeline scenarios; a clean pass reports `running … tests` followed by `test result: ok`.
+- `cargo bench --bench pipeline` exercises the end-to-end async loop—look for the `time: [...]` summary to confirm hop-cap latency and throughput regressions.
+
+### Configuration
+
+- Runtime knobs live in `PipelineConfig` (`src/pipeline/config.rs`). Update those fields before calling `pipeline::run` or tweak the values in the Criterion benches to explore different workloads.
+- The settings map 1:1 to what the async tasks consume: `hop_cap` bounds cycle depth, `max_updates` + `rate_jitter` drive producer pressure, `channel_capacity` / `max_coalesce` tune lock contention, and the rate bounds gate invalid liquidity swings.
+- `config.toml` currently sets `target-cpu=native`; add more sections there (or wire up a loader) if you want to externalise pipeline configuration.
+- Example bench override:
+
+```rust
+let mut config = PipelineConfig::default();
+config.hop_cap = 4;
+config.search_interval = Duration::from_millis(10);
+config.max_updates = 512;
+```
+
+### Sample run
+
+Running the pipeline bench (Criterion) in release mode gives you a feel for steady-state latency. The snippet below uses the default dataset and prints both hop-cap sweeps and throughput scenarios:
+
+```text
+$ cargo bench --bench pipeline
+Benchmarking pipeline_hop_cap/2
+pipeline_hop_cap/2      time:   [382.12 ms 396.01 ms 409.94 ms]
+Benchmarking pipeline_throughput/pipeline/updates64_hop2
+pipeline_throughput/pipeline/updates64_hop2
+                        time:   [24.686 ms 25.120 ms 25.517 ms]
+                        thrpt:  [2.5081 Kelem/s 2.5477 Kelem/s 2.5926 Kelem/s]
+```
+
+Criterion defaults to long measurement windows; pass `-- --sample-size 10` (or edit `benches/pipeline.rs`) if you need quicker, exploratory runs.
 
 ### Runnable Binaries
 
@@ -47,7 +87,7 @@ Remembering what we chose. Each time a node’s best cost improves at hop h, we 
 
 Goal: Keep a shared CSR graph hot with streaming rate edits while the cycle searcher polls for new opportunities, so we surface arbitrage loops quickly without dropping updates.
 
-#### Task topology
+#### Architecture
 
 - `producer` sends jittered rate updates into an MPSC channel, `writer` drains batches of those updates and mutates the shared graph, `searcher` reads snapshots on a cadence, and `run` ties their lifecycles together with one-shot shutdown.
 - The shared graph lives behind an `Arc<RwLock<_>>`, so the writer takes the write lock for short, bounded stretches while the searcher clones a read-locked snapshot before running the heavier cycle detection.
@@ -63,7 +103,7 @@ Goal: Keep a shared CSR graph hot with streaming rate edits while the cycle sear
 - The searcher ticks on `search_interval`, incrementing a `PipelineStats` counter every pass and stashing the most recent profitable cycle (if any) for the caller.
 - On shutdown we send a one-shot, let the writer finish naturally, then force one last search so the stats reflect any late-breaking win before returning.
 
-### Data Layout
+### Data Layout (AoS vs SoA)
 
 On my Mac M4 summary: 50k–100k edges AoS ≈ SoA (~0.17–0.35 ms, equal checksums); at 1M edges SoA is ~18% faster (AoS 4.1258 ms vs SoA 3.3779 ms).
 
@@ -74,7 +114,7 @@ On my Mac M4 summary: 50k–100k edges AoS ≈ SoA (~0.17–0.35 ms, equal check
 - At 1M, the loop becomes bandwidth‑bound: SoA packs rates densely (more useful values per cache line), while AoS drags unused from/to fields, wasting memory bandwidth.
 - AoS may win when you need from/to/rate together per edge, where whole‑object locality avoids hopping across multiple arrays.
 
-### Numerical Kernel
+### Numerical Kernel (log_kernel)
 
 Goal: Fuse Clamp → Multiply → Quantize (linear) → Log → Gate into one stable step. Inputs/outputs are log-space so tiny multiplicative updates stay accurate.
 
@@ -88,3 +128,12 @@ The bits that make the kernel fast and steady:
 - Rounding uses ties-to-even with a tiny ULP-scaled deadband, which kills long-run bias and keeps boundary oscillations from flapping.
 - The epsilon gate is expressed in log units, so it scales multiplicatively and quashes micro-jitter without hiding real price movement.
 - NaN/Inf cases snap to bounds for deterministic outcomes, and the whole routine stays branch-lean—sanitize once, then straight-line math—so it plays nicely with SIMD and remains idempotent when re-applied.
+
+### Dataset & CSR Builder
+
+Goal: Load token + pool snapshots from disk, normalise them into integer indices, and feed a CSR graph without ever reallocating during steady state.
+
+- Dataset shape: `datasets/dataset.json` stores tokens (`id`, `symbol`) and directed edges (`from`, `to`, `rate`, `pool_id`, `kind`) so we can replay either on-chain snapshots or synthetic stress scenarios.
+- Deserialisation uses `serde_json` in a single pass; IDs stay as `u64` until pipeline startup, where we validate bounds and downcast to `usize` once.
+- The CSR builder allocates `Vec<InputEdge>` + `Vec<f64>` up front, so the pipeline shares immutable baseline rates with the producer while the writer mutates in place.
+- Errors bubble as `DatasetError`/`PipelineError`, which annotate the offending edge ID or file path to keep debugging tight when datasets drift.
