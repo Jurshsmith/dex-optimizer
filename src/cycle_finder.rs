@@ -108,25 +108,25 @@ pub fn find_profitable_cycle_with_graph(graph: &CSRGraph, hop_cap: usize) -> Opt
 }
 
 /// In-place relaxation from hop-1 → hop.
-/// - `best_previousious` is read-only (costs for exactly h-1 hops).
-/// - `best_currentrent` is overwritten with costs for exactly h hops.
+/// - `best_previous` is read-only (costs for exactly h-1 hops).
+/// - `best_current` is overwritten with costs for exactly h hops.
 /// - `predecessor_at_hop[v]` becomes the winning predecessor edge index for (hop, v), or None.
 #[inline]
 fn relax_hop_inplace(
     graph: &CSRGraph,
-    best_previousious: &[f64],
-    best_currentrent: &mut [f64],
+    best_previous: &[f64],
+    best_current: &mut [f64],
     predecessor_at_hop: &mut [Option<usize>],
 ) {
-    // assume caller already did: best_currentrent.fill(∞), predecessor_at_hop.fill(None)
-    for (u, &du) in best_previousious.iter().enumerate() {
+    // assume caller already did: best_current.fill(∞), predecessor_at_hop.fill(None)
+    for (u, &du) in best_previous.iter().enumerate() {
         if !du.is_finite() {
             continue;
         }
         for (ei, v, w) in graph.neighbors(u) {
             let d = du + w;
-            if d < best_currentrent[v] {
-                best_currentrent[v] = d;
+            if d < best_current[v] {
+                best_current[v] = d;
                 predecessor_at_hop[v] = Some(ei); // predecessor (argmin) for (hop, v)
             }
         }
