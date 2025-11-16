@@ -119,15 +119,18 @@ fn relax_hop_inplace(
     predecessor_at_hop: &mut [Option<usize>],
 ) {
     // assume caller already did: best_current.fill(∞), predecessor_at_hop.fill(None)
-    for (u, &du) in best_previous.iter().enumerate() {
-        if !du.is_finite() {
+    for (from_node, &distance_of_from_node) in best_previous.iter().enumerate() {
+        if !distance_of_from_node.is_finite() {
             continue;
         }
-        for (ei, v, w) in graph.neighbors(u) {
-            let d = du + w;
-            if d < best_current[v] {
-                best_current[v] = d;
-                predecessor_at_hop[v] = Some(ei); // predecessor (argmin) for (hop, v)
+        for (edge_index, to_node, w) in graph.neighbors(from_node) {
+            let d = distance_of_from_node + w;
+            if d < best_current[to_node] {
+                // Every successful relaxation indicates a new pathway/edge to get the shortest distance from start node
+                // if it's a negative cycle, there will always be successful relaxation regardless of the hop for the each
+                // node in the cycle path (one node in the cycle path per hop)
+                best_current[to_node] = d;
+                predecessor_at_hop[to_node] = Some(edge_index); // predecessor (argmin) for (hop, v)
             }
         }
     }
